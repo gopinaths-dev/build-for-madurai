@@ -1,0 +1,5 @@
+{
+  "name": "Green Madurai",
+  "description": "A fun eco-learning PWA for kids in Madurai to learn waste segregation through gamification.",
+  "requestFramePermissions": ["camera"]
+}
