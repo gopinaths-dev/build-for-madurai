@@ -29,11 +29,25 @@ async function startServer() {
     });
   });
 
-  app.post("/api/score", (req, res) => {
+  app.post("/api/score", async (req, res) => {
     const { score, category, message, studentName } = req.body;
     
     // Update class total if score is positive
     if (score > 0) classTotal += score;
+
+    // Optional: Forward to external API if configured
+    const externalApiUrl = (process.env.EXTERNAL_API_URL || "").replace(/\/$/, "");
+    if (externalApiUrl) {
+      try {
+        await fetch(`${externalApiUrl}/api/score`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req.body),
+        });
+      } catch (err) {
+        console.error("Failed to forward score to external API:", err);
+      }
+    }
 
     res.json({
       score,

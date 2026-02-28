@@ -2,9 +2,11 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
+const API_BASE_URL = ((import.meta as any).env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
 export const api = {
   getLeaderboard: async () => {
-    const res = await fetch("/api/leaderboard");
+    const res = await fetch(`${API_BASE_URL}/api/leaderboard`);
     return res.json();
   },
   analyzeWasteImage: async (base64Data: string) => {
@@ -82,7 +84,7 @@ export const api = {
     }
   },
   recordScore: async (analysisResult: any, studentName: string) => {
-    const res = await fetch("/api/score", {
+    const res = await fetch(`${API_BASE_URL}/api/score`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...analysisResult, studentName }),
