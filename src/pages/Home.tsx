@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Camera, Upload, CheckCircle2, XCircle, Award, Trophy, MapPin } from 'lucide-react';
+import { Camera, Upload, CheckCircle2, XCircle, Award, Trophy, MapPin, Sparkles, HelpCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { api } from '../services/api';
 
@@ -8,14 +8,60 @@ export default function Home() {
   const [image, setImage] = useState<string | null>(null);
   const [filename, setFilename] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
+  const [isAssisting, setIsAssisting] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [assistMessage, setAssistMessage] = useState<React.ReactNode | null>(null);
   const [result, setResult] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
     if (savedUser) setUser(JSON.parse(savedUser));
   }, []);
+
+  const playSpeech = async (text: string) => {
+    if (isSpeaking) return;
+    setIsSpeaking(true);
+    
+    try {
+      const base64Audio = await api.generateSpeech(text);
+      if (!base64Audio) {
+        setIsSpeaking(false);
+        return;
+      }
+
+      // Gemini TTS returns raw PCM 16-bit mono at 24kHz
+      const binaryString = window.atob(base64Audio);
+      const len = binaryString.length;
+      const bytes = new Int16Array(len / 2);
+      for (let i = 0; i < len; i += 2) {
+        bytes[i / 2] = (binaryString.charCodeAt(i + 1) << 8) | binaryString.charCodeAt(i);
+      }
+
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      const audioBuffer = audioContext.createBuffer(1, bytes.length, 24000);
+      const channelData = audioBuffer.getChannelData(0);
+      
+      // Convert Int16 to Float32
+      for (let i = 0; i < bytes.length; i++) {
+        channelData[i] = bytes[i] / 32768;
+      }
+
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      source.onended = () => {
+        setIsSpeaking(false);
+        audioContext.close();
+      };
+      source.start();
+    } catch (err) {
+      console.error("Playback Error:", err);
+      setIsSpeaking(false);
+    }
+  };
 
   const handleCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -31,7 +77,7 @@ export default function Home() {
 
   const handleSubmit = async () => {
     if (!image) return;
-    
+    setAssistMessage(null);
     setIsUploading(true);
     try {
       // 1. Run Real AI Analysis on Client
@@ -40,6 +86,11 @@ export default function Home() {
       // 2. Record the score on the Server
       const res = await api.recordScore(analysis, user?.studentName || 'Student');
       setResult(res);
+      
+      // 3. Play Tamil Speech
+      if (analysis.tamilSpeechText) {
+        playSpeech(analysis.tamilSpeechText);
+      }
       
       if (res.score > 0) {
         confetti({
@@ -56,9 +107,56 @@ export default function Home() {
     }
   };
 
+  const handleAssist = async () => {
+    if (!image) {
+      setAssistMessage("Kanna, first take a photo of the waste! 📸");
+      return;
+    }
+    setAssistMessage(null);
+    setIsAssisting(true);
+    try {
+      const analysis = await api.analyzeWasteImage(image);
+      
+      // Reward 5 points for seeking help/learning
+      await api.recordScore({ ...analysis, score: 5, message: "Learning points!" }, user?.studentName || 'Student');
+
+      // Play Tamil Speech
+      if (analysis.tamilSpeechText) {
+        playSpeech(analysis.tamilSpeechText);
+      }
+
+      setAssistMessage(
+        <div className="space-y-2">
+          <motion.p 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5 }}
+            className="font-black text-sky-700"
+          >
+            {analysis.message}
+          </motion.p>
+          <motion.div 
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-sky-50 p-3 rounded-xl border border-sky-100"
+          >
+            <p className="text-xs font-bold text-sky-600 uppercase tracking-wider mb-1">Eco Teacher's Tip 🍎</p>
+            <p className="text-sm text-slate-600 leading-relaxed">{analysis.educationalTip}</p>
+          </motion.div>
+        </div>
+      );
+    } catch (err) {
+      setAssistMessage("Oops! My AI brain is a bit tired. Try again! 🌟");
+    } finally {
+      setIsAssisting(false);
+    }
+  };
+
   const reset = () => {
     setImage(null);
     setResult(null);
+    setAssistMessage(null);
   };
 
   return (
@@ -82,6 +180,24 @@ export default function Home() {
       </header>
 
       <main className="relative z-10">
+        <AnimatePresence>
+          {assistMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="mb-4 bg-white p-4 rounded-2xl border-2 border-sky-200 shadow-lg flex items-start gap-3"
+            >
+              <div className="bg-sky-100 p-2 rounded-full shrink-0">
+                <Sparkles className="text-sky-500" size={18} />
+              </div>
+              <p className="text-sm font-bold text-slate-700 leading-relaxed">
+                {assistMessage}
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {!image ? (
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
@@ -208,6 +324,42 @@ export default function Home() {
           </p>
         </div>
       </section>
+      {/* AI Akka Button - Jumping Bottom Right */}
+      <motion.button
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
+        animate={{ 
+          y: isSpeaking ? [0, -15, 0] : [0, -10, 0],
+          scale: isSpeaking ? [1, 1.1, 1] : 1,
+          boxShadow: isSpeaking ? [
+            "0 10px 15px -3px rgba(236, 72, 153, 0.3)",
+            "0 20px 25px -5px rgba(236, 72, 153, 0.5)",
+            "0 10px 15px -3px rgba(236, 72, 153, 0.3)"
+          ] : "0 10px 15px -3px rgba(14, 165, 233, 0.3)"
+        }}
+        transition={{ 
+          duration: isSpeaking ? 0.6 : 2, 
+          repeat: Infinity, 
+          ease: "easeInOut" 
+        }}
+        onClick={handleAssist}
+        disabled={isAssisting || isSpeaking}
+        className={`fixed bottom-28 right-6 w-20 h-20 text-white rounded-full shadow-xl flex flex-col items-center justify-center z-40 border-4 border-white active:scale-95 transition-colors ${
+          isSpeaking ? 'bg-pink-500' : 'bg-sky-500'
+        }`}
+      >
+        <div className="mb-1">
+          {isAssisting ? (
+            <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Sparkles size={28} strokeWidth={3} />
+          )}
+        </div>
+        <span className="font-black text-[10px] uppercase tracking-tighter leading-none">
+          {isSpeaking ? 'Speaking' : 'AI AKKA'}
+        </span>
+      </motion.button>
+      <audio ref={audioRef} className="hidden" />
     </div>
   );
 }
